@@ -21,15 +21,8 @@ jobs:
       - name: Install Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          architecture: 'x64'
-
-      - name: Configure UTF-8
-        shell: pwsh
-        run: |
-          chcp 65001
-          "PYTHONIOENCODING=utf-8" >> $env:GITHUB_ENV
-          "PYTHONUTF8=1" >> $env:GITHUB_ENV
+          python-version: "3.11"
+          architecture: x64
 
       - name: Install dependencies
         shell: pwsh
@@ -38,13 +31,21 @@ jobs:
           python -m pip install -e .
           python -m pip install pyinstaller
 
-      - name: Verify Python dependencies
+      - name: Verify dependencies
         shell: pwsh
         run: |
           python -c "import tkinter, pyaudio, numpy, scipy, librosa, mido, rtmidi, click, rich, questionary; print('Dependencies OK')"
-          python -m audio_to_midi.main --help
 
-      - name: Create Windows launcher
+      - name: Verify source CLI
+        shell: pwsh
+        run: |
+          chcp 65001
+          python -m audio_to_midi.main --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "Source CLI verification failed"
+          }
+
+      - name: Create fixed Windows launcher
         shell: pwsh
         run: |
           @'
@@ -54,11 +55,23 @@ jobs:
           os.environ["PYTHONIOENCODING"] = "utf-8"
           os.environ["PYTHONUTF8"] = "1"
 
+          def configure_console():
+              for stream in (sys.stdout, sys.stderr):
+                  if stream is not None:
+                      if hasattr(stream, "reconfigure"):
+                          stream.reconfigure(
+                              encoding="utf-8",
+                              errors="replace"
+                          )
+
+          configure_console()
+
           from audio_to_midi.main import main
 
           if __name__ == "__main__":
               if len(sys.argv) == 1:
                   sys.argv.append("run")
+
               main()
           '@ | Set-Content -Path "chm_launcher.py" -Encoding utf8
 
@@ -79,29 +92,45 @@ jobs:
             --collect-all "numba" `
             chm_launcher.py
 
-      - name: Smoke test EXE
+      - name: Verify built EXE
         shell: pwsh
         run: |
           chcp 65001
-          $env:PYTHONIOENCODING = "utf-8"
-          $env:PYTHONUTF8 = "1"
 
           $exe = "dist/CHM-Audio-to-MIDI/CHM-Audio-to-MIDI.exe"
 
           if (!(Test-Path $exe)) {
-            throw "Executable not found"
+            throw "EXE not found"
           }
+
+          Write-Host "Testing compiled executable"
 
           & $exe --help
 
           if ($LASTEXITCODE -ne 0) {
-            throw "EXE smoke test failed"
+            throw "Compiled EXE test failed"
           }
+
+          Write-Host "EXE CLI test passed"
+
+      - name: Package Windows application
+        shell: pwsh
+        run: |
+          $folder = "dist/CHM-Audio-to-MIDI"
+
+          if (!(Test-Path $folder)) {
+            throw "Build folder missing"
+          }
+
+          Compress-Archive `
+            -Path "$folder/*" `
+            -DestinationPath "CHM-Audio-to-MIDI-Windows.zip" `
+            -Force
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: CHM-Audio-to-MIDI-Windows
-          path: dist/CHM-Audio-to-MIDI/
+          path: CHM-Audio-to-MIDI-Windows.zip
           if-no-files-found: error
           retention-days: 30
