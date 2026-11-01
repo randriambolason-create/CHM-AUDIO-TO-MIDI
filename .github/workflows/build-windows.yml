@@ -9,6 +9,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
 
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -18,7 +23,13 @@ jobs:
         with:
           python-version: '3.11'
           architecture: 'x64'
-          cache: 'pip'
+
+      - name: Configure UTF-8
+        shell: pwsh
+        run: |
+          chcp 65001
+          "PYTHONIOENCODING=utf-8" >> $env:GITHUB_ENV
+          "PYTHONUTF8=1" >> $env:GITHUB_ENV
 
       - name: Install dependencies
         shell: pwsh
@@ -37,7 +48,12 @@ jobs:
         shell: pwsh
         run: |
           @'
+          import os
           import sys
+
+          os.environ["PYTHONIOENCODING"] = "utf-8"
+          os.environ["PYTHONUTF8"] = "1"
+
           from audio_to_midi.main import main
 
           if __name__ == "__main__":
@@ -49,16 +65,35 @@ jobs:
       - name: Build Windows EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --console --name "CHM-Audio-to-MIDI" --collect-submodules "audio_to_midi" --collect-submodules "librosa" --collect-submodules "mido.backends" --collect-all "soundfile" --collect-all "scipy" --collect-all "numba" chm_launcher.py
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onedir `
+            --console `
+            --name "CHM-Audio-to-MIDI" `
+            --collect-submodules "audio_to_midi" `
+            --collect-submodules "librosa" `
+            --collect-submodules "mido.backends" `
+            --collect-all "soundfile" `
+            --collect-all "scipy" `
+            --collect-all "numba" `
+            chm_launcher.py
 
       - name: Smoke test EXE
         shell: pwsh
         run: |
+          chcp 65001
+          $env:PYTHONIOENCODING = "utf-8"
+          $env:PYTHONUTF8 = "1"
+
           $exe = "dist/CHM-Audio-to-MIDI/CHM-Audio-to-MIDI.exe"
+
           if (!(Test-Path $exe)) {
             throw "Executable not found"
           }
+
           & $exe --help
+
           if ($LASTEXITCODE -ne 0) {
             throw "EXE smoke test failed"
           }
