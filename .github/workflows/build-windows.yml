@@ -1,0 +1,72 @@
+
+name: CHM Audio to MIDI - Windows EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e .
+          python -m pip install pyinstaller
+
+      - name: Verify Python dependencies
+        shell: pwsh
+        run: |
+          python -c "import tkinter, pyaudio, numpy, scipy, librosa, mido, rtmidi, click, rich, questionary; print('Dependencies OK')"
+          python -m audio_to_midi.main --help
+
+      - name: Create Windows launcher
+        shell: pwsh
+        run: |
+          @'
+          import sys
+          from audio_to_midi.main import main
+
+          if __name__ == "__main__":
+              if len(sys.argv) == 1:
+                  sys.argv.append("run")
+              main()
+          '@ | Set-Content -Path "chm_launcher.py" -Encoding utf8
+
+      - name: Build Windows EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --console --name "CHM-Audio-to-MIDI" --collect-submodules "audio_to_midi" --collect-submodules "librosa" --collect-submodules "mido.backends" --collect-all "soundfile" --collect-all "scipy" --collect-all "numba" chm_launcher.py
+
+      - name: Smoke test EXE
+        shell: pwsh
+        run: |
+          $exe = "dist/CHM-Audio-to-MIDI/CHM-Audio-to-MIDI.exe"
+          if (!(Test-Path $exe)) {
+            throw "Executable not found"
+          }
+          & $exe --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "EXE smoke test failed"
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CHM-Audio-to-MIDI-Windows
+          path: dist/CHM-Audio-to-MIDI/
+          if-no-files-found: error
+          retention-days: 30
